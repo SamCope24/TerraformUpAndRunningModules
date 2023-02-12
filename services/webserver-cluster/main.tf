@@ -1,18 +1,6 @@
-# acts as a datasource for the default aws vpc
-data "aws_vpc" "default" {
-  default = true
-}
-
-# used to pull subnet data from the default vpc
-data "aws_subnets" "default" {
-  filter {
-    name   = "vpc-id"
-    values = [data.aws_vpc.default.id]
-  }
-}
 
 resource "aws_launch_configuration" "example" {
-  image_id        = "ami-0fb653ca2d3203ac1"
+  image_id        = var.ami
   instance_type   = var.instance_type
   security_groups = [aws_security_group.instance.id] # links the EC2 instance to the security group
 
@@ -21,6 +9,7 @@ resource "aws_launch_configuration" "example" {
     server_port = var.server_port
     db_address  = data.terraform_remote_state.db.outputs.address
     db_port     = data.terraform_remote_state.db.outputs.port
+    server_text = var.server_text
   })
 
   # Required when using a launch configuration with an auto scaling group 
@@ -31,6 +20,10 @@ resource "aws_launch_configuration" "example" {
 
 # creation of an auto scaling group that runs between 2 and 10 EC2 instances
 resource "aws_autoscaling_group" "example" {
+  # explicitly depend on the launch configurations name so each time it's
+  # replaced, this ASG is also replaced
+  name = "${var.cluster_name}-${aws_launch_configuration.example.name}"
+
   launch_configuration = aws_launch_configuration.example.name
   vpc_zone_identifier  = data.aws_subnets.default.ids
 
@@ -39,6 +32,16 @@ resource "aws_autoscaling_group" "example" {
 
   min_size = var.min_size
   max_size = var.max_size
+
+  # wait for at least this many instances to pass health checks before
+  # considering the ASG deployment complete
+  min_elb_capacity = var.min_size
+
+  # when replacing this ASG, create the replacement first, and only delete
+  # the original after
+  lifecycle {
+    create_before_destroy = true
+  }
 
   tag {
     key                 = "Name"
@@ -167,18 +170,6 @@ resource "aws_lb_listener_rule" "asg" {
   action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.asg.arn
-  }
-}
-
-# read outputs from the database's state file 
-# all od the database's output variables are stored in the state file
-data "terraform_remote_state" "db" {
-  backend = "s3"
-
-  config = {
-    bucket = var.db_remote_state_bucket
-    key    = var.db_remote_state_key
-    region = "us-east-2"
   }
 }
 
