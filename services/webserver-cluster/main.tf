@@ -33,15 +33,25 @@ resource "aws_autoscaling_group" "example" {
   min_size = var.min_size
   max_size = var.max_size
 
-  # wait for at least this many instances to pass health checks before
-  # considering the ASG deployment complete
-  min_elb_capacity = var.min_size
-
-  # when replacing this ASG, create the replacement first, and only delete
-  # the original after
-  lifecycle {
-    create_before_destroy = true
+  # use instance referesh to roll out changes to the ASG
+  # allows AWS to handle the changes meaning below approach is not required
+  instance_refresh {
+    strategy = "Rolling"
+    
+    preferences {
+      min_healthy_percentage = 50
+    }
   }
+
+  # # wait for at least this many instances to pass health checks before
+  # # considering the ASG deployment complete
+  # min_elb_capacity = var.min_size
+
+  # # when replacing this ASG, create the replacement first, and only delete
+  # # the original after
+  # lifecycle {
+  #   create_before_destroy = true
+  # }
 
   tag {
     key                 = "Name"
